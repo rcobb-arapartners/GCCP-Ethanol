@@ -185,3 +185,82 @@ build_crush_table <- function(wide_df, title = "Crush Spreads", decimals = 3, da
   
   tbl
 }
+
+# ------------------------------------------------------------
+# Time series plot built from the same wide df that feeds the gt table.
+# Pivots back to long, constructs a date from YEAR + month name,
+# and plots a single line ordered chronologically.
+# Stat rows (Mean, P-xx, gap rows) are excluded automatically.
+# ------------------------------------------------------------
+build_crush_ts_plot <- function(wide_df, title = "Crush Spread Over Time",
+                                date_min = NULL, date_max = NULL,
+                                dark_mode = FALSE) {
+  
+  month_to_num <- c(
+    January = 1, February = 2, March = 3,    April = 4,
+    May     = 5, June     = 6, July  = 7,    August    = 8,
+    September = 9, October = 10, November = 11, December = 12
+  )
+  
+  stat_labels <- c("Mean", "P-10", "P-25", "P-50", "P-75", "P-90",
+                   "__gap1__", "__gap2__")
+  
+  month_cols <- names(wide_df)[names(wide_df) %in% names(month_to_num)]
+  
+  df <- wide_df |>
+    filter(!(YEAR %in% stat_labels)) |>
+    mutate(YEAR = as.integer(YEAR)) |>
+    select(YEAR, all_of(month_cols)) |>
+    pivot_longer(cols = all_of(month_cols),
+                 names_to  = "MONTH_NAME",
+                 values_to = "VALUE") |>
+    filter(!is.na(VALUE)) |>
+    mutate(
+      MONTH_NUM     = month_to_num[MONTH_NAME],
+      CONTRACT_DATE = as.Date(paste(YEAR, MONTH_NUM, "01", sep = "-"))
+    ) |>
+    arrange(CONTRACT_DATE)
+  
+  # Apply date filter from slider if provided
+  if (!is.null(date_min)) df <- df |> filter(CONTRACT_DATE >= as.Date(date_min))
+  if (!is.null(date_max)) df <- df |> filter(CONTRACT_DATE <= as.Date(date_max))
+  
+  if (dark_mode) {
+    paper_bg <- "#222222"; plot_bg <- "#2a2a2a"; grid_col <- "#444444"
+    font_col <- "#ffffff"; line_col <- "#18BC9C"; zero_col <- "#666666"
+  } else {
+    paper_bg <- "white";   plot_bg <- "#F8F9FA"; grid_col <- "#E5E5E5"
+    font_col <- "#2C3E50"; line_col <- "#2C3E50"; zero_col <- "#AAAAAA"
+  }
+  
+  if (nrow(df) == 0) {
+    return(plot_ly() |> layout(title = list(text = "No data", x = 0.02)))
+  }
+  
+  plot_ly(data = df) |>
+    add_trace(
+      x    = ~CONTRACT_DATE,
+      y    = ~VALUE,
+      type = "scatter",
+      mode = "lines",
+      line = list(color = line_col, width = 1.8),
+      hovertemplate = paste0("<b>Contract:</b> %{x|%b %Y}<br>",
+                             "<b>Spread:</b> $%{y:.3f}<br>",
+                             "<extra></extra>")
+    ) |>
+    layout(
+      title  = list(text = title, x = 0.02, xanchor = "left",
+                    font = list(size = 13, color = font_col)),
+      xaxis  = list(title = "Contract Date", color = font_col,
+                    gridcolor = grid_col, showgrid = TRUE, zeroline = FALSE),
+      yaxis  = list(title = "Crush Spread ($/gal)", color = font_col,
+                    gridcolor = grid_col, showgrid = TRUE,
+                    zeroline = TRUE, zerolinecolor = zero_col, zerolinewidth = 1),
+      hovermode     = "x unified",
+      margin        = list(l = 60, r = 20, b = 50, t = 40),
+      paper_bgcolor = paper_bg,
+      plot_bgcolor  = plot_bg,
+      font          = list(family = "Arial, sans-serif", size = 11, color = font_col),
+      showlegend    = FALSE
+    )
+}
