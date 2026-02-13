@@ -127,9 +127,8 @@ build_marketview_daily_forward_data_on_corn_months <- function(
       TRADING_MONTH = floor_date(DATE_ID, "months")
     ) |>
     select(SYMBOL,DESCRIPTION,BASE_SYMBOL,CALENDAR_YEAR,YEAR_CODE,MONTH_CODE,DATE_ID,everything()) |> 
-    filter(DATE_ID < CONTRACT_DATE_ID) |> 
     mutate(EXPIRED = if_else(as.Date(as_of_date) > ceiling_date(CONTRACT_DATE_ID,'months') - days(1),1,0)) 
-    
+  
   
   return(full_data)
   
@@ -158,11 +157,11 @@ corn_marketview_daily_forward_curves <- build_marketview_daily_forward_data_on_c
 ########################################################
 # Generate Liquidations OFF Corn Months
 ########################################################
-
-#ethanol OFF
-generate_off_month_ethanol_prices <- function(marketview_ethanol_df = ethanol_marketview_daily_forward_curves,
-                                              as_of_date = '2026-02-06') {
-  ethanol_off <- marketview_ethanol_df |> 
+generate_off_month_prices <- function(marketview_ethanol_df = ethanol_marketview_daily_forward_curves,
+                                      marketview_corn_df = corn_marketview_daily_forward_curves,
+                                      as_of_date = '2026-02-06',
+                                      yield = 2.9) {
+  off_month_ethanol_prices <- marketview_ethanol_df |> 
     filter(DATE_ID <= as_of_date) |> 
     group_by(DESCRIPTION) |>
     mutate(
@@ -186,15 +185,10 @@ generate_off_month_ethanol_prices <- function(marketview_ethanol_df = ethanol_ma
     filter(DATE_ID == max(DATE_ID)) |> 
     ungroup() |> 
     rename(ETHANOL_PRICE_OFF_MONTH = CLOSE)
-  return(ethanol_off)
-}
-off_month_ethanol_prices <- generate_off_month_ethanol_prices()
-#corn off
-generate_off_month_corn_prices <- function(marketview_corn_df = corn_marketview_daily_forward_curves,
-                                           ethanol_off_df = off_month_ethanol_prices,
-                                           as_of_date = '2026-02-06') {
+  
+  
   #first, do expired contracts
-  ethanol_off_df_expired <- ethanol_off_df |> 
+  ethanol_off_df_expired <- off_month_ethanol_prices |> 
     filter(EXPIRED == 1)
   full_relevant_corn_off_prices_expired <- data.frame()
   for(d in unique(ethanol_off_df_expired$DESCRIPTION)) {
@@ -232,7 +226,7 @@ generate_off_month_corn_prices <- function(marketview_corn_df = corn_marketview_
         select(ETHANOL_DESCRIPTION,RELEVANT_CORN_PRICE) |> 
         distinct()
     }
-  
+    
     if(ethanol_month_code == 'H') {
       sub_marketview_corn_expired_df_filtered <- marketview_corn_df_filtered |> 
         filter(MONTH_CODE == 'H',
@@ -354,9 +348,9 @@ generate_off_month_corn_prices <- function(marketview_corn_df = corn_marketview_
   }
   
   #now, do non-expired contracts
-
   
-  ethanol_off_df_non_expired <- ethanol_off_df |> 
+  
+  ethanol_off_df_non_expired <- off_month_ethanol_prices |> 
     filter(EXPIRED == 0)
   full_relevant_corn_off_prices_non_expired <- data.frame()
   for(d in unique(ethanol_off_df_non_expired$DESCRIPTION)) {
@@ -455,16 +449,161 @@ generate_off_month_corn_prices <- function(marketview_corn_df = corn_marketview_
   
   full_relevant_corn_off_prices <- full_relevant_corn_off_prices_expired |> 
     bind_rows(full_relevant_corn_off_prices_non_expired)
-  return(full_relevant_corn_off_prices)
+  
+  
+  off_month_prices <- off_month_ethanol_prices |> 
+    inner_join(full_relevant_corn_off_prices,by = c('DESCRIPTION' = 'ETHANOL_DESCRIPTION')) |> 
+    mutate(CRUSH_SPREAD = ETHANOL_PRICE_OFF_MONTH - (RELEVANT_CORN_PRICE/100/yield)) |> 
+    rename(RELEVANT_CORN_PRICE_OFF_MONTH = RELEVANT_CORN_PRICE,
+           CRUSH_SPREAD_OFF_MONTH = CRUSH_SPREAD)
+  
+  
+  return(off_month_prices)
+  
   
 }
-off_month_corn_prices <- generate_off_month_corn_prices()
+off_month_prices <- generate_off_month_prices(as_of_date = '2026-02-06')
 
-off_month_prices <- off_month_ethanol_prices |> 
-  inner_join(off_month_corn_prices,by = c('DESCRIPTION' = 'ETHANOL_DESCRIPTION'))
+########################################################
+# Generate Liquidations ON Corn Months
+########################################################
+generate_on_month_prices <- function(input_ethanol_df = ethanol_marketview_daily_forward_curves,
+                                     input_corn_df    = corn_marketview_daily_forward_curves,
+                                     as_of_date       = '2026-02-06',
+                                     yield = 2.9) {
+  
+  as_of_date <- as.Date(as_of_date)
+  
+  ethanol_df <- input_ethanol_df |>
+    rename(CONTRACT_YEAR = CALENDAR_YEAR) |>
+    mutate(
+      CONTRACT_MONTH = MONTH_CODE,
+      
+      CONTRACT_MONTH_NAME = case_when(
+        CONTRACT_MONTH == "F" ~ "January",
+        CONTRACT_MONTH == "G" ~ "February",
+        CONTRACT_MONTH == "H" ~ "March",
+        CONTRACT_MONTH == "J" ~ "April",
+        CONTRACT_MONTH == "K" ~ "May",
+        CONTRACT_MONTH == "M" ~ "June",
+        CONTRACT_MONTH == "N" ~ "July",
+        CONTRACT_MONTH == "Q" ~ "August",
+        CONTRACT_MONTH == "U" ~ "September",
+        CONTRACT_MONTH == "V" ~ "October",
+        CONTRACT_MONTH == "X" ~ "November",
+        CONTRACT_MONTH == "Z" ~ "December",
+        TRUE ~ NA_character_
+      ),
+      
+      # ethanol -> corn month alignment (corrected)
+      RELEVANT_CORN_CONTRACT_MONTH = case_when(
+        CONTRACT_MONTH == "Z" ~ "H",
+        CONTRACT_MONTH == "X" ~ "Z",
+        CONTRACT_MONTH == "V" ~ "Z",
+        CONTRACT_MONTH == "U" ~ "Z",
+        CONTRACT_MONTH == "Q" ~ "U",
+        CONTRACT_MONTH == "N" ~ "U",
+        CONTRACT_MONTH == "M" ~ "N",
+        CONTRACT_MONTH == "K" ~ "N",
+        CONTRACT_MONTH == "J" ~ "K",
+        CONTRACT_MONTH == "H" ~ "K",
+        CONTRACT_MONTH == "G" ~ "H",
+        CONTRACT_MONTH == "F" ~ "H",
+        TRUE ~ NA_character_
+      ),
+      
+      # year crossover: Dec ethanol -> next year's Mar corn
+      RELEVANT_CORN_CONTRACT_YEAR =
+        if_else(CONTRACT_MONTH == "Z", CONTRACT_YEAR + 1L, CONTRACT_YEAR),
+      
+      # ethanol expiry ceiling (month-end proxy)
+      ETHANOL_MONTH_NUM = case_when(
+        CONTRACT_MONTH == "F" ~ 1L,
+        CONTRACT_MONTH == "G" ~ 2L,
+        CONTRACT_MONTH == "H" ~ 3L,
+        CONTRACT_MONTH == "J" ~ 4L,
+        CONTRACT_MONTH == "K" ~ 5L,
+        CONTRACT_MONTH == "M" ~ 6L,
+        CONTRACT_MONTH == "N" ~ 7L,
+        CONTRACT_MONTH == "Q" ~ 8L,
+        CONTRACT_MONTH == "U" ~ 9L,
+        CONTRACT_MONTH == "V" ~ 10L,
+        CONTRACT_MONTH == "X" ~ 11L,
+        CONTRACT_MONTH == "Z" ~ 12L,
+        TRUE ~ NA_integer_
+      ),
+      ETHANOL_EXPIRY_CEILING_DATE =
+        ceiling_date(ymd(sprintf("%d-%02d-01", CONTRACT_YEAR, ETHANOL_MONTH_NUM)), "month") - days(1),
+      
+      # Expired flag (as-of date compared to expiry date)
+      EXPIRED_CONTRACT = as_of_date > ETHANOL_EXPIRY_CEILING_DATE
+    ) |>
+    select(-ETHANOL_MONTH_NUM) 
+  
+  
+  corn_join <- input_corn_df |>
+    rename(CONTRACT_YEAR = CALENDAR_YEAR) |>
+    select(
+      DATE_ID,
+      CONTRACT_YEAR,
+      MONTH_CODE,
+      CORN_DESCRIPTION = DESCRIPTION,
+      CORN_CLOSE = CLOSE
+    ) 
+  
+  on_corn_months_crush_df <- ethanol_df |>
+    left_join(
+      corn_join,
+      by = c(
+        "DATE_ID" = "DATE_ID",
+        "RELEVANT_CORN_CONTRACT_YEAR" = "CONTRACT_YEAR",
+        "RELEVANT_CORN_CONTRACT_MONTH" = "MONTH_CODE"
+      )
+    ) |>
+    rename(
+      ETHANOL_DESCRIPTION = DESCRIPTION,
+      ETHANOL_CLOSE = CLOSE
+    ) |>
+    select(
+      DATE_ID,
+      CONTRACT_YEAR,
+      CONTRACT_MONTH,
+      CONTRACT_MONTH_NAME,
+      RELEVANT_CORN_CONTRACT_YEAR,
+      RELEVANT_CORN_CONTRACT_MONTH,
+      ETHANOL_DESCRIPTION,
+      CORN_DESCRIPTION,
+      ETHANOL_EXPIRY_CEILING_DATE,
+      EXPIRED_CONTRACT,
+      ETHANOL_CLOSE,
+      CORN_CLOSE
+    ) |> 
+    na.omit() |> 
+    select(DATE_ID,EXPIRED_CONTRACT,CORN_DESCRIPTION,ETHANOL_DESCRIPTION,CONTRACT_MONTH_NAME,CONTRACT_YEAR,RELEVANT_CORN_CONTRACT_MONTH,RELEVANT_CORN_CONTRACT_YEAR,ETHANOL_CLOSE,CORN_CLOSE) |> 
+    mutate(TRADING_MONTH = floor_date(DATE_ID,'months')) |> 
+    group_by(CORN_DESCRIPTION,ETHANOL_DESCRIPTION,TRADING_MONTH) |> 
+    mutate(ROLLING_AVERAGE_CORN_CLOSE = cummean(CORN_CLOSE)) |> 
+    ungroup() |> 
+    group_by(CORN_DESCRIPTION,ETHANOL_DESCRIPTION) |> 
+    filter(DATE_ID == max(DATE_ID)) |> 
+    mutate(
+      CRUSH_SPREAD = ETHANOL_CLOSE - (ROLLING_AVERAGE_CORN_CLOSE/100/yield),
+      IMPLIED_CRUSH_SPREAD = ETHANOL_CLOSE - (CORN_CLOSE/100/yield),
+      CRUSH_SPREAD_USED = if_else(EXPIRED_CONTRACT, CRUSH_SPREAD,IMPLIED_CRUSH_SPREAD)
+    ) |> 
+    ungroup() |> 
+    select(DESCRIPTION = ETHANOL_DESCRIPTION,
+           RELEVANT_CORN_PRICE_ON_MONTH = CORN_CLOSE,
+           ETHANOL_PRICE_ON_MONTH = ETHANOL_CLOSE,
+           CRUSH_SPREAD_ON_MONTH = CRUSH_SPREAD_USED)
+}
+
+on_month_prices <- generate_on_month_prices(as_of_date = '2026-02-06')
 
 
-write_csv(off_month_prices,'for_kevin_off_month.csv')
+prices_full <- off_month_prices |> 
+  full_join(on_month_prices)
+
 
 
 
