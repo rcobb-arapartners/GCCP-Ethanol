@@ -441,7 +441,9 @@ shape_for_table <- function(prices_full, spread_col) {
       )
     ) |>
     select(YEAR, MONTH_NAME, VALUE = all_of(spread_col)) |>
-    pivot_wider(id_cols = YEAR, names_from = MONTH_NAME, values_from = VALUE) |>
+    filter(!is.na(MONTH_NAME), !is.na(VALUE)) |>
+    distinct(YEAR, MONTH_NAME, .keep_all = TRUE) |>
+    pivot_wider(id_cols = YEAR, names_from = MONTH_NAME, values_from = VALUE, values_fn = first) |>
     select(YEAR, any_of(month_order)) |>
     rowwise() |>
     mutate(CalYear = mean(c_across(any_of(month_order)), na.rm = TRUE)) |>

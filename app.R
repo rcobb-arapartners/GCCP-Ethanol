@@ -25,6 +25,10 @@ ui <- page_navbar(
         
         dateInput("max_date",   "Max Date (query cutoff)",    value = Sys.Date()),
         dateInput("as_of_date", "As-of Date (expiration logic)", value = Sys.Date()),
+        fluidRow(
+          column(6, numericInput("min_year", "Min Year", value = 2007, min = 2007, max = 2099, step = 1)),
+          column(6, numericInput("max_year", "Max Year", value = as.integer(format(Sys.Date(), "%Y")) + 1L, min = 2007, max = as.integer(format(Sys.Date(), "%Y")) + 1L, step = 1))
+        ),
         numericInput("yield", "Yield (gal/bu)", value = 2.9, min = 0.1, step = 0.01),
         actionButton("load_data", "Load Data", class = "btn-primary", width = "100%"),
         hr(),
@@ -130,13 +134,15 @@ server <- function(input, output, session) {
     shinyjs::show("loading_overlay")
     
     tryCatch({
-      max_d   <- isolate(as.Date(input$max_date))
-      as_of_d <- isolate(as.Date(input$as_of_date))
-      yld     <- isolate(as.numeric(input$yield))
+      max_d    <- isolate(as.Date(input$max_date))
+      as_of_d  <- isolate(as.Date(input$as_of_date))
+      yld      <- isolate(as.numeric(input$yield))
+      min_yr   <- isolate(as.integer(input$min_year))
+      max_yr   <- isolate(as.integer(input$max_year))
       
       ethanol_df <- build_marketview_daily_forward_data_on_corn_months(
         base_symbols   = "GCU",
-        calendar_years = 2007:2026,
+        calendar_years = min_yr:max_yr,
         month_codes    = c("F","G","H","J","K","M","N","Q","U","V","X","Z"),
         min_date       = "2000-01-01",
         max_date       = max_d,
@@ -145,7 +151,7 @@ server <- function(input, output, session) {
       
       corn_df <- build_marketview_daily_forward_data_on_corn_months(
         base_symbols   = "ZC",
-        calendar_years = 2007:2026,
+        calendar_years = min_yr:max_yr,
         month_codes    = c("H","K","N","U","Z"),
         min_date       = "2000-01-01",
         max_date       = max_d,

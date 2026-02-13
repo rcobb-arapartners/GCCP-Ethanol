@@ -21,7 +21,7 @@ append_stats_rows <- function(wide_df) {
   
   make_stat_row <- function(label, fn) {
     row <- tibble(YEAR = label)
-    for (col in value_cols) row[[col]] <- fn(wide_df[[col]])
+    for (col in value_cols) row[[col]] <- fn(as.numeric(unlist(wide_df[[col]])))
     row
   }
   
