@@ -23,6 +23,7 @@ library(rJava)
 library(RJDBC)
 library(zoo)
 library(glue)
+library(plotly)
 
 # ------------------------------------------------------------
 # ggplot theme
