@@ -288,9 +288,9 @@ build_comparison_rows <- function(wide_df, as_of_date, max_year,
         month_num <- month_to_num[col]
         # Only show comparisons for forward months - check length first
         if (length(month_num) > 0 && !is.null(month_num) && !is.na(month_num) && month_num > as_of_month) {
-          curr_val <- if (nrow(current_row) > 0 && col %in% names(current_row) && !is.na(current_row[[col]])) current_row[[col]] else NA_real_
-          week_val <- if (nrow(week_row) > 0 && col %in% names(week_row) && !is.na(week_row[[col]])) week_row[[col]] else NA_real_
-          month_val <- if (nrow(month_row) > 0 && col %in% names(month_row) && !is.na(month_row[[col]])) month_row[[col]] else NA_real_
+          curr_val <- if (nrow(current_row) > 0 && col %in% names(current_row)) { v <- current_row[[col]]; if (length(v) == 1 && !is.na(v)) v else NA_real_ } else NA_real_
+          week_val <- if (nrow(week_row)    > 0 && col %in% names(week_row))    { v <- week_row[[col]];    if (length(v) == 1 && !is.na(v)) v else NA_real_ } else NA_real_
+          month_val <- if (nrow(month_row)  > 0 && col %in% names(month_row))   { v <- month_row[[col]];   if (length(v) == 1 && !is.na(v)) v else NA_real_ } else NA_real_
           
           # Calculate percentiles for week ago and month ago values using Excel PERCENTRANK method
           # Get all historical values for this month (excluding forward years)
@@ -337,9 +337,9 @@ build_comparison_rows <- function(wide_df, as_of_date, max_year,
           if (month_col %in% names(current_row)) {
             month_num <- month_to_num[month_col]
             if (length(month_num) > 0 && !is.null(month_num) && !is.na(month_num) && month_num > as_of_month) {
-              cv <- if (month_col %in% names(current_row)) current_row[[month_col]] else NA_real_
-              wv <- if (nrow(week_row) > 0 && month_col %in% names(week_row)) week_row[[month_col]] else NA_real_
-              mv <- if (nrow(month_row) > 0 && month_col %in% names(month_row)) month_row[[month_col]] else NA_real_
+              cv <- if (nrow(current_row) > 0 && month_col %in% names(current_row)) { v <- current_row[[month_col]]; if (length(v) == 1 && !is.na(v)) v else NA_real_ } else NA_real_
+              wv <- if (nrow(week_row)    > 0 && month_col %in% names(week_row))    { v <- week_row[[month_col]];    if (length(v) == 1 && !is.na(v)) v else NA_real_ } else NA_real_
+              mv <- if (nrow(month_row)   > 0 && month_col %in% names(month_row))   { v <- month_row[[month_col]];   if (length(v) == 1 && !is.na(v)) v else NA_real_ } else NA_real_
               
               if (!is.na(cv)) curr_vals <- c(curr_vals, cv)
               if (!is.na(wv)) week_vals <- c(week_vals, wv)

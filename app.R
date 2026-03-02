@@ -55,14 +55,7 @@ ui <- page_navbar(
         
         card(
           full_screen = TRUE,
-          card_header(
-            div(style = "display: flex; justify-content: space-between; align-items: center;",
-                h5("Liquidations ON Corn Months", style = "margin:0;"),
-                downloadButton("dl_on_image", "Download Table Image", 
-                               class = "btn-sm btn-secondary", 
-                               style = "font-size:11px; padding:4px 8px;")
-            )
-          ),
+          card_header(h5("Liquidations ON Corn Months", style = "margin:0;")),
           card_body(style = "overflow-y:auto; overflow-x:auto; padding:0.5rem;",
                     gt_output("table_on"))
         ),
@@ -86,14 +79,7 @@ ui <- page_navbar(
         
         card(
           full_screen = TRUE,
-          card_header(
-            div(style = "display: flex; justify-content: space-between; align-items: center;",
-                h5("Liquidations OFF Corn Months", style = "margin:0;"),
-                downloadButton("dl_off_image", "Download Table Image", 
-                               class = "btn-sm btn-secondary", 
-                               style = "font-size:11px; padding:4px 8px;")
-            )
-          ),
+          card_header(h5("Liquidations OFF Corn Months", style = "margin:0;")),
           card_body(style = "overflow-y:auto; overflow-x:auto; padding:0.5rem;",
                     gt_output("table_off"))
         ),
@@ -394,50 +380,6 @@ server <- function(input, output, session) {
     }
   )
   
-  # ---- Download table images ----
-  output$dl_on_image <- downloadHandler(
-    filename = function() paste0("liquidations_on_", format(Sys.Date(), "%Y%m%d"), ".png"),
-    content = function(file) {
-      req(wide_on())
-      tbl <- build_crush_table(
-        wide_on(), 
-        title = "Liquidations ON Corn Months",
-        subtitle = paste0("Shaded cells indicate forward values (contracts expiring after ", 
-                          format(rv$applied_as_of_date, "%m/%d/%Y"), ")"),
-        decimals = 3,
-        as_of_date = rv$applied_as_of_date,
-        max_year = rv$applied_max_year,
-        ethanol_df = rv$ethanol_df,
-        corn_df = rv$corn_df,
-        yield = rv$applied_yield,
-        spread_type = "ON",
-        dark_mode = input$dark_mode
-      )
-      gtsave(tbl, file)
-    }
-  )
-  
-  output$dl_off_image <- downloadHandler(
-    filename = function() paste0("liquidations_off_", format(Sys.Date(), "%Y%m%d"), ".png"),
-    content = function(file) {
-      req(wide_off())
-      tbl <- build_crush_table(
-        wide_off(),
-        title = "Liquidations OFF Corn Months",
-        subtitle = paste0("Shaded cells indicate forward values (contracts expiring after ",
-                          format(rv$applied_as_of_date, "%m/%d/%Y"), ")"),
-        decimals = 3,
-        as_of_date = rv$applied_as_of_date,
-        max_year = rv$applied_max_year,
-        ethanol_df = rv$ethanol_df,
-        corn_df = rv$corn_df,
-        yield = rv$applied_yield,
-        spread_type = "OFF",
-        dark_mode = input$dark_mode
-      )
-      gtsave(tbl, file)
-    }
-  )
 }
 
 shinyApp(ui, server)
