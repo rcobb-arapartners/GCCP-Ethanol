@@ -24,6 +24,7 @@ library(RJDBC)
 library(zoo)
 library(glue)
 library(plotly)
+library(webshot2)
 
 # ------------------------------------------------------------
 # ggplot theme

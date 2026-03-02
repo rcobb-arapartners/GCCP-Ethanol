@@ -1,5 +1,4 @@
 # app.R
-
 source("01-MetaLoad.R")
 source("02-DataBuild.R")
 source("03-VisualBuild.R")
@@ -24,18 +23,22 @@ ui <- page_navbar(
         title = "Controls",
         
         dateInput("max_date",   "Max Date (query cutoff)",       value = Sys.Date()),
+        actionButton("load_data", "Load Data", class = "btn-primary", width = "100%"),
+        
+        hr(),
+        
         dateInput("as_of_date", "As-of Date (expiration logic)", value = Sys.Date()),
         fluidRow(
           column(6, numericInput("min_year", "Min Year", value = 2007,
                                  min = 2007, max = 2099, step = 1)),
-          column(6, numericInput("max_year", "Max Year",
-                                 value = as.integer(format(Sys.Date(), "%Y")) + 1L,
-                                 min = 2007,
-                                 max  = as.integer(format(Sys.Date(), "%Y")) + 1L,
-                                 step = 1))
+          column(6, selectInput("max_year", "Max Year",
+                                choices = c(as.integer(format(Sys.Date(), "%Y")),
+                                            as.integer(format(Sys.Date(), "%Y")) + 1L),
+                                selected = as.integer(format(Sys.Date(), "%Y"))))
         ),
         numericInput("yield", "Yield (gal/bu)", value = 2.9, min = 0.1, step = 0.01),
-        actionButton("load_data", "Load Data", class = "btn-primary", width = "100%"),
+        actionButton("apply_changes", "Apply", class = "btn-success", width = "100%"),
+        
         hr(),
         uiOutput("status"),
         hr(),
@@ -52,7 +55,14 @@ ui <- page_navbar(
         
         card(
           full_screen = TRUE,
-          card_header(h5("Liquidations ON Corn Months", style = "margin:0;")),
+          card_header(
+            div(style = "display: flex; justify-content: space-between; align-items: center;",
+                h5("Liquidations ON Corn Months", style = "margin:0;"),
+                downloadButton("dl_on_image", "Download Table Image", 
+                               class = "btn-sm btn-secondary", 
+                               style = "font-size:11px; padding:4px 8px;")
+            )
+          ),
           card_body(style = "overflow-y:auto; overflow-x:auto; padding:0.5rem;",
                     gt_output("table_on"))
         ),
@@ -76,7 +86,14 @@ ui <- page_navbar(
         
         card(
           full_screen = TRUE,
-          card_header(h5("Liquidations OFF Corn Months", style = "margin:0;")),
+          card_header(
+            div(style = "display: flex; justify-content: space-between; align-items: center;",
+                h5("Liquidations OFF Corn Months", style = "margin:0;"),
+                downloadButton("dl_off_image", "Download Table Image", 
+                               class = "btn-sm btn-secondary", 
+                               style = "font-size:11px; padding:4px 8px;")
+            )
+          ),
           card_body(style = "overflow-y:auto; overflow-x:auto; padding:0.5rem;",
                     gt_output("table_off"))
         ),
@@ -104,6 +121,8 @@ ui <- page_navbar(
     tags$head(tags$style(HTML("
       .btn-primary { background-color:#2C3E50 !important; border-color:#2C3E50 !important; font-weight:500; }
       .btn-primary:hover { background-color:#34495E !important; border-color:#34495E !important; }
+      .btn-success { background-color:#18BC9C !important; border-color:#18BC9C !important; font-weight:500; }
+      .btn-success:hover { background-color:#15a589 !important; border-color:#15a589 !important; }
       .card { border:1px solid var(--bs-border-color); box-shadow:0 2px 4px rgba(0,0,0,0.05); margin-bottom:4px !important; }
       .card-header { background-color:var(--bs-light); border-bottom:1px solid var(--bs-border-color); font-weight:600; padding:0.4rem; }
       [data-bs-theme='dark'] .card-header { background-color:var(--bs-dark); }
@@ -139,7 +158,12 @@ server <- function(input, output, session) {
     corn_df     = NULL,
     prices_full = NULL,
     last_load   = NULL,
-    err         = NULL
+    err         = NULL,
+    # Applied parameters
+    applied_as_of_date = Sys.Date(),
+    applied_yield = 2.9,
+    applied_min_year = 2007,
+    applied_max_year = as.integer(format(Sys.Date(), "%Y"))
   )
   
   # ---- Status panel ----
@@ -194,6 +218,12 @@ server <- function(input, output, session) {
       rv$loaded      <- TRUE
       rv$last_load   <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
       
+      # Store applied parameters
+      rv$applied_as_of_date <- as_of_d
+      rv$applied_yield <- yld
+      rv$applied_min_year <- min_yr
+      rv$applied_max_year <- max_yr
+      
       shinyjs::hide("loading_overlay")
     }, error = function(e) {
       rv$err <- as.character(e$message)
@@ -201,11 +231,14 @@ server <- function(input, output, session) {
     })
   })
   
-  # ---- Rebuild prices_full when as_of_date or yield changes (no re-fetch) ----
-  observeEvent(list(input$as_of_date, input$yield), {
+  # ---- Apply changes button (recalculate without re-fetching) ----
+  observeEvent(input$apply_changes, {
     req(rv$loaded, rv$ethanol_df, rv$corn_df)
+    
     as_of_d <- as.Date(input$as_of_date)
     yld     <- as.numeric(input$yield)
+    min_yr  <- as.integer(input$min_year)
+    max_yr  <- as.integer(input$max_year)
     
     ethanol_restamped <- rv$ethanol_df |>
       mutate(EXPIRED = if_else(as.Date(as_of_d) > ceiling_date(CONTRACT_DATE_ID, 'months') - days(1), 1, 0))
@@ -213,17 +246,49 @@ server <- function(input, output, session) {
       mutate(EXPIRED = if_else(as.Date(as_of_d) > ceiling_date(CONTRACT_DATE_ID, 'months') - days(1), 1, 0))
     
     rv$prices_full <- build_prices_full(ethanol_restamped, corn_restamped, as_of_d, yld)
+    
+    # Update applied parameters
+    rv$applied_as_of_date <- as_of_d
+    rv$applied_yield <- yld
+    rv$applied_min_year <- min_yr
+    rv$applied_max_year <- max_yr
   })
   
   # ---- GT tables ----
   output$table_on <- render_gt({
     req(wide_on())
-    build_crush_table(wide_on(), title = "Liquidations ON Corn Months", decimals = 3, dark_mode = input$dark_mode)
+    build_crush_table(
+      wide_on(), 
+      title = "Liquidations ON Corn Months",
+      subtitle = paste0("Shaded cells indicate forward values (contracts expiring after ", 
+                        format(rv$applied_as_of_date, "%m/%d/%Y"), ")"),
+      decimals = 3,
+      as_of_date = rv$applied_as_of_date,
+      max_year = rv$applied_max_year,
+      ethanol_df = rv$ethanol_df,
+      corn_df = rv$corn_df,
+      yield = rv$applied_yield,
+      spread_type = "ON",
+      dark_mode = input$dark_mode
+    )
   })
   
   output$table_off <- render_gt({
     req(wide_off())
-    build_crush_table(wide_off(), title = "Liquidations OFF Corn Months", decimals = 3, dark_mode = input$dark_mode)
+    build_crush_table(
+      wide_off(),
+      title = "Liquidations OFF Corn Months",
+      subtitle = paste0("Shaded cells indicate forward values (contracts expiring after ",
+                        format(rv$applied_as_of_date, "%m/%d/%Y"), ")"),
+      decimals = 3,
+      as_of_date = rv$applied_as_of_date,
+      max_year = rv$applied_max_year,
+      ethanol_df = rv$ethanol_df,
+      corn_df = rv$corn_df,
+      yield = rv$applied_yield,
+      spread_type = "OFF",
+      dark_mode = input$dark_mode
+    )
   })
   
   # ---- Wide dfs (shared between tables and plots) ----
@@ -240,7 +305,9 @@ server <- function(input, output, session) {
   # ---- Slider date range: derived from wide_on (same for both) ----
   ts_date_range_from_wide <- function(wide_df) {
     stat_labels <- c("Mean", "P-10", "P-25", "P-50", "P-75", "P-90",
-                     "__gap1__", "__gap2__")
+                     "__gap1__", "__gap2__", "__gap3__",
+                     "Week Ago Value", "Week Ago Percentile", "Δ Week", 
+                     "Month Ago Value", "Month Ago Percentile", "Δ Month")
     month_to_num <- c(
       January = 1, February = 2, March = 3,    April = 4,
       May = 5,     June = 6,     July = 7,      August = 8,
@@ -294,7 +361,7 @@ server <- function(input, output, session) {
                         dark_mode  = input$dark_mode)
   })
   
-  # ---- Downloads ----
+  # ---- Downloads CSV ----
   output$dl_on <- downloadHandler(
     filename = function() paste0("liquidations_on_", format(Sys.Date(), "%Y%m%d"), ".csv"),
     content  = function(file) {
@@ -324,6 +391,51 @@ server <- function(input, output, session) {
     content  = function(file) {
       req(rv$corn_df)
       write_csv(rv$corn_df, file)
+    }
+  )
+  
+  # ---- Download table images ----
+  output$dl_on_image <- downloadHandler(
+    filename = function() paste0("liquidations_on_", format(Sys.Date(), "%Y%m%d"), ".png"),
+    content = function(file) {
+      req(wide_on())
+      tbl <- build_crush_table(
+        wide_on(), 
+        title = "Liquidations ON Corn Months",
+        subtitle = paste0("Shaded cells indicate forward values (contracts expiring after ", 
+                          format(rv$applied_as_of_date, "%m/%d/%Y"), ")"),
+        decimals = 3,
+        as_of_date = rv$applied_as_of_date,
+        max_year = rv$applied_max_year,
+        ethanol_df = rv$ethanol_df,
+        corn_df = rv$corn_df,
+        yield = rv$applied_yield,
+        spread_type = "ON",
+        dark_mode = input$dark_mode
+      )
+      gtsave(tbl, file)
+    }
+  )
+  
+  output$dl_off_image <- downloadHandler(
+    filename = function() paste0("liquidations_off_", format(Sys.Date(), "%Y%m%d"), ".png"),
+    content = function(file) {
+      req(wide_off())
+      tbl <- build_crush_table(
+        wide_off(),
+        title = "Liquidations OFF Corn Months",
+        subtitle = paste0("Shaded cells indicate forward values (contracts expiring after ",
+                          format(rv$applied_as_of_date, "%m/%d/%Y"), ")"),
+        decimals = 3,
+        as_of_date = rv$applied_as_of_date,
+        max_year = rv$applied_max_year,
+        ethanol_df = rv$ethanol_df,
+        corn_df = rv$corn_df,
+        yield = rv$applied_yield,
+        spread_type = "OFF",
+        dark_mode = input$dark_mode
+      )
+      gtsave(tbl, file)
     }
   )
 }
