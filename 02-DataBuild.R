@@ -86,7 +86,9 @@ build_marketview_daily_forward_data_on_corn_months <- function(
       TRADING_MONTH    = floor_date(DATE_ID, "months")
     ) |>
     select(SYMBOL, DESCRIPTION, BASE_SYMBOL, CALENDAR_YEAR, YEAR_CODE, MONTH_CODE, DATE_ID, everything()) |>
-    mutate(EXPIRED = if_else(as.Date(as_of_date) > ceiling_date(CONTRACT_DATE_ID, 'months') - days(1), 1, 0))
+    group_by(DESCRIPTION) |>
+    mutate(EXPIRED = if_else(as.Date(as_of_date) >= max(DATE_ID), 1, 0)) |>
+    ungroup()
   
   return(full_data)
 }
@@ -335,6 +337,7 @@ generate_on_month_prices <- function(input_ethanol_df,
   
   ethanol_df <- input_ethanol_df |>
     rename(CONTRACT_YEAR = CALENDAR_YEAR) |>
+    group_by(DESCRIPTION) |>
     mutate(
       CONTRACT_MONTH = MONTH_CODE,
       CONTRACT_MONTH_NAME = case_when(
@@ -368,8 +371,9 @@ generate_on_month_prices <- function(input_ethanol_df,
       ),
       ETHANOL_EXPIRY_CEILING_DATE =
         ceiling_date(ymd(sprintf("%d-%02d-01", CONTRACT_YEAR, ETHANOL_MONTH_NUM)), "month") - days(1),
-      EXPIRED_CONTRACT = as_of_date > ETHANOL_EXPIRY_CEILING_DATE
+      EXPIRED_CONTRACT = as_of_date >= max(DATE_ID)
     ) |>
+    ungroup() |>
     select(-ETHANOL_MONTH_NUM)
   
   corn_join <- input_corn_df |>
