@@ -371,7 +371,14 @@ generate_on_month_prices <- function(input_ethanol_df,
       ),
       ETHANOL_EXPIRY_CEILING_DATE =
         ceiling_date(ymd(sprintf("%d-%02d-01", CONTRACT_YEAR, ETHANOL_MONTH_NUM)), "month") - days(1),
-      EXPIRED_CONTRACT = as_of_date >= max(DATE_ID)
+      # Use ETHANOL_EXPIRY_CEILING_DATE - 1 day so that a contract whose last
+      # trading day falls on as_of_date (e.g. Feb contract on 2/27) is correctly
+      # treated as expired, while contracts that truly haven't expired yet are not.
+      # Previously this used max(DATE_ID), which equals as_of_date for every
+      # non-expired contract when max_date == as_of_date — incorrectly marking all
+      # forward months as expired and using the rolling-average corn price instead
+      # of the spot price.
+      EXPIRED_CONTRACT = as_of_date >= (ETHANOL_EXPIRY_CEILING_DATE - days(1))
     ) |>
     ungroup() |>
     select(-ETHANOL_MONTH_NUM)
@@ -397,6 +404,7 @@ generate_on_month_prices <- function(input_ethanol_df,
     select(DATE_ID, EXPIRED_CONTRACT, CORN_DESCRIPTION, ETHANOL_DESCRIPTION,
            CONTRACT_MONTH_NAME, CONTRACT_YEAR, RELEVANT_CORN_CONTRACT_MONTH,
            RELEVANT_CORN_CONTRACT_YEAR, ETHANOL_CLOSE, CORN_CLOSE) |>
+    filter(DATE_ID <= as_of_date) |>
     mutate(TRADING_MONTH = floor_date(DATE_ID, 'months')) |>
     group_by(CORN_DESCRIPTION, ETHANOL_DESCRIPTION, TRADING_MONTH) |>
     mutate(ROLLING_AVERAGE_CORN_CLOSE = cummean(CORN_CLOSE)) |>
